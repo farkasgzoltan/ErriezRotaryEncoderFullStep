@@ -38,6 +38,13 @@
 
 #include "ErriezRotaryFullStep.h"
 
+// ----------------------------------------------------------------------------
+// Button configuration (values for 1ms timer service calls)
+//
+#define ENC_BUTTONINTERVAL    10  // check button every x milliseconds, also debouce time
+#define ENC_DOUBLECLICKTIME  600  // second click within 600ms
+#define ENC_HOLDTIME 1200         // report held button after 1.2s
+
 #define DIR_NONE  0x00      //!< No complete step yet
 #define DIR_CW    0x10      //!< Clockwise step
 #define DIR_CCW   0x20      //!< Counter-clockwise step
@@ -85,13 +92,18 @@ static const PROGMEM uint8_t fullStepTable[7][4] = {
  *     sensitive or will disable speed detection.
  *     Default is 100.
  */
-RotaryFullStep::RotaryFullStep(uint8_t pin1, uint8_t pin2, bool pullUp, uint8_t sensitivity) :
-    _pin1(pin1), _pin2(pin2), _state(0), _sensitivity(sensitivity)
+RotaryFullStep::RotaryFullStep(uint8_t pin1, uint8_t pin2, uint8_t BTN, bool pullUp, uint8_t sensitivity) :
+    _pin1(pin1), _pin2(pin2), pinBTN(BTN), _state(0), sensitivity(sensitivity)
 {
     if (pullUp) {
         // Enable internal pull-up
         pinMode(_pin1, INPUT_PULLUP);
         pinMode(_pin2, INPUT_PULLUP);
+        pinMode(pinBTN, INPUT_PULLUP);
+        //uint8_t configType = (pinsActive == LOW) ? INPUT_PULLUP : INPUT;
+        //pinMode(_pin1, configType);
+        //pinMode(_pin2, configType);
+        //pinMode(pinBTN, configType);
     }
 }
 
@@ -129,6 +141,8 @@ int RotaryFullStep::read()
     // Determine new state from the pins and state table.
     _state = pgm_read_byte(&fullStepTable[_state & 0x0f][pinState]);
 
+    unsigned long now = millis();
+
     // Check rotary state
     switch (_state & 0x30) {
         case DIR_CW:
@@ -156,6 +170,53 @@ int RotaryFullStep::read()
         }
     }
 
+  // handle button
+  //
+#ifndef WITHOUT_BUTTON
+  if (pinBTN > 0 // check button only, if a pin has been provided
+      && (now - lastButtonCheck) >= ENC_BUTTONINTERVAL) // checking button is sufficient every 10-30ms
+  {
+    lastButtonCheck = now;
+
+    if (digitalRead(pinBTN) == pinsActive) { // key is down
+      keyDownTicks++;
+      if (keyDownTicks > (ENC_HOLDTIME / ENC_BUTTONINTERVAL)) {
+        button = Held;
+      }
+    }
+
+    if (digitalRead(pinBTN) == !pinsActive) { // key is now up
+      if (keyDownTicks /*> ENC_BUTTONINTERVAL*/) {
+        if (button == Held) {
+          button = Released;
+          doubleClickTicks = 0;
+        }
+        else {
+          #define ENC_SINGLECLICKONLY 1
+          if (doubleClickTicks > ENC_SINGLECLICKONLY) {   // prevent trigger in single click mode
+            if (doubleClickTicks < (ENC_DOUBLECLICKTIME / ENC_BUTTONINTERVAL)) {
+              button = DoubleClicked;
+              doubleClickTicks = 0;
+            }
+          }
+          else {
+            doubleClickTicks = (doubleClickEnabled) ? (ENC_DOUBLECLICKTIME / ENC_BUTTONINTERVAL) : ENC_SINGLECLICKONLY;
+          }
+        }
+      }
+
+      keyDownTicks = 0;
+    }
+
+    if (doubleClickTicks > 0) {
+      doubleClickTicks--;
+      if (--doubleClickTicks == 0) {
+        button = Clicked;
+      }
+    }
+  }
+#endif // WITHOUT_BUTTON
+
     return rotaryState;
 }
 
@@ -180,3 +241,14 @@ uint8_t RotaryFullStep::getSensitivity()
 {
     return _sensitivity;
 }
+
+#ifndef WITHOUT_BUTTON
+RotaryFullStep::Button RotaryFullStep::getButton(void)
+{
+  RotaryFullStep::Button ret = button;
+  if (button != RotaryFullStep::Held) {
+    button = RotaryFullStep::Open; // reset
+  }
+  return ret;
+}
+#endif

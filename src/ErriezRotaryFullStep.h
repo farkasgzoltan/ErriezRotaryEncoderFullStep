@@ -41,10 +41,38 @@
 class RotaryFullStep
 {
 public:
+  typedef enum Button_e {
+    Open = 0,
+    Closed,
+
+    Pressed,
+    Held,
+    Released,
+
+    Clicked,
+    DoubleClicked
+
+  } Button;
+
+public:
     RotaryFullStep(uint8_t pin1, uint8_t pin2, bool pullUp=true, uint8_t sensitivity=100);
     int read();
     void setSensitivity(uint8_t sensitivity);
     uint8_t getSensitivity();
+
+#ifndef WITHOUT_BUTTON
+public:
+    Button getButton(void);
+    void setDoubleClickEnabled(const bool &d)
+    {
+      doubleClickEnabled = d;
+    }
+
+    const bool getDoubleClickEnabled()
+    {
+      return doubleClickEnabled;
+    }
+#endif
 
 private:
     unsigned long  _lastChange;
@@ -52,6 +80,13 @@ private:
     uint8_t _pin2;
     uint8_t _state;
     uint8_t _sensitivity;
+#ifndef WITHOUT_BUTTON
+    volatile Button button;
+    bool doubleClickEnabled;
+    uint16_t keyDownTicks = 0;
+    uint8_t doubleClickTicks = 0;
+    unsigned long lastButtonCheck = 0;
+#endif
 };
 
 #endif // ERRIEZ_ROTARY_FULL_STEP_H_
